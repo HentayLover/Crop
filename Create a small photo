@@ -1,0 +1,67 @@
+#Create a new photo and labels for this
+import cv2
+import os
+
+def increase_resolution(image_path, output_path, scale_factor=2):
+    """
+    Увеличивает разрешение изображения с помощью билинейной интерполяции.
+
+    Args:
+        image_path: Путь к исходному изображению.
+        output_path: Путь к папке для сохранения обработанных изображений.
+        scale_factor: Коэффициент масштабирования (2 означает увеличение в два раза).
+    """
+    image = cv2.imread(image_path)
+    if image is not None:
+        width = int(image.shape[1] *scale_factor)
+        height = int(image.shape[0] *scale_factor)
+        resized_image = cv2.resize(image, (width, height), interpolation=cv2.INTER_LINEAR)
+        # Формируем новое имя файла с суффиксом "_small"
+        filename = os.path.splitext(os.path.basename(image_path))[0]  # Извлекаем имя без расширения
+        new_filename = filename + '_small' + os.path.splitext(os.path.basename(image_path))[1]  # Добавляем суффикс и расширение
+        output_filename = os.path.join(output_path, new_filename)
+        cv2.imwrite(output_filename, resized_image)
+        print(f"Обработано: {new_filename}")
+    else:
+        print(f"Ошибка при загрузке: {image_path}")
+
+
+if __name__ == '__main__':  # Исправлено: 'name' -> '__name__'
+    input_folder = 'data_yolo_new_photo/images/val'  # Путь к папке с изображениями
+    output_folder = 'data_yolo_new_photo/images/new_val'  # Путь к папке для сохранения обработанных изображений
+    scale_factor = 0.5  # Коэффициент масштабирования
+
+    os.makedirs(output_folder, exist_ok=True)  # Создаем папку для вывода, если она не существует
+
+    for filename in os.listdir(input_folder):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            image_path = os.path.join(input_folder, filename)
+            increase_resolution(image_path, output_folder, scale_factor)
+import os
+import shutil
+
+def copy_and_rename_txt(labels_folder, output_folder):
+    """
+    Копирует файлы .txt из папки labels, добавляя суффикс "_small" к их именам.
+
+    Args:
+        labels_folder: Путь к папке с файлами .txt.
+        output_folder: Путь к папке для сохранения скопированных файлов.
+    """
+    os.makedirs(output_folder, exist_ok=True)  # Создаем папку для вывода, если она не существует
+
+    for filename in os.listdir(labels_folder):
+        if filename.lower().endswith('.txt'):
+            source_path = os.path.join(labels_folder, filename)
+            # Изменяем имя файла, добавляя суффикс "_small"
+            new_filename = filename.replace('.txt', '_small.txt')
+            target_path = os.path.join(output_folder, new_filename)
+            shutil.copy2(source_path, target_path)
+            print(f"Скопировано: {filename} -> {new_filename}")
+
+
+if __name__ == '__main__':
+    labels_folder = 'data_yolo_new_photo/labels/val'  # Путь к папке с файлами .txt
+    output_folder = 'data_yolo_new_photo/labels/new_val'  # Путь к папке для сохранения скопированных файлов
+
+    copy_and_rename_txt(labels_folder, output_folder)
