@@ -1,0 +1,55 @@
+import cv2
+import os
+
+def draw_bounding_boxes(image_path, labels_path, output_path):
+    """
+    Отображает баундинг боксы на изображении из файла разметки.
+
+    Args:
+        image_path: Путь к изображению.
+        labels_path: Путь к файлу разметки (в формате YOLOv8).
+        output_path: Путь к папке для сохранения обработанных изображений.
+    """
+
+    image = cv2.imread(image_path)
+
+    if image is not None:
+        # Загружаем данные из файла разметки
+        with open(labels_path, 'r') as f:
+            labels = f.readlines()
+
+        # Обрабатываем каждую строку в файле разметки
+        for label in labels:
+            # Разделяем данные в строке
+            class_id, x_center, y_center, width, height = map(float, label.strip().split())
+            # Преобразуем координаты в формат OpenCV
+            x_min = int((x_center - width / 2) *image.shape[1])
+            y_min = int((y_center - height / 2)* image.shape[0])
+            x_max = int((x_center + width / 2) *image.shape[1])
+            y_max = int((y_center + height / 2) *image.shape[0])
+            print("Количество пикселей по х",x_max-x_min)
+            print("Количество пикселей по y",y_max-y_min)
+            # Рисуем баундинг бокс
+            cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+
+        # Сохраняем изображение с баундинг боксами
+        filename = os.path.basename(image_path)
+        output_filename = os.path.join(output_path, filename)
+        cv2.imwrite(output_filename, image)
+        print(f"Обработано: {filename}")
+    else:
+        print(f"Ошибка при загрузке: {image_path}")
+
+
+if __name__ == '__main__':
+    images_folder = 'data_yolo_new_photo/images/trans_train'  # Папка с изображениями
+    labels_folder = 'data_yolo_new_photo/labels/trans_train'  # Папка с файлами разметки
+    output_folder = 'new_image_perenos'  # Папка для сохранения результатов
+
+    os.makedirs(output_folder, exist_ok=True)
+
+    for filename in os.listdir(images_folder):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            image_path = os.path.join(images_folder, filename)
+            labels_path = os.path.join(labels_folder, filename.replace('.jpg', '.txt').replace('.png', '.txt'))
+            draw_bounding_boxes(image_path, labels_path, output_folder)
