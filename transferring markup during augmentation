@@ -1,0 +1,121 @@
+import os
+import cv2
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+import numpy as np
+import torch
+
+def transform_image_and_labels(image_path, labels_path, output_image_folder, output_labels_folder, transform_base):
+    """
+    Применяет преобразования к изображению и корректирует разметку.
+
+    Args:
+        image_path: Путь к изображению.
+        labels_path: Путь к файлу разметки (в формате YOLOv8).
+        output_image_folder: Папка для сохранения преобразованных изображений.
+        output_labels_folder: Папка для сохранения преобразованных файлов разметки.
+        transform_base: Базовый объект преобразования (Albumentations) без обрезки.
+    """
+    image = cv2.imread(image_path)
+
+    if image is not None:
+        height, width, _ = image.shape
+
+        # Загружаем данные из файла разметки
+        with open(labels_path, 'r') as f:
+            labels = f.readlines()
+
+        # Преобразуем метки в нужный формат
+        annotations = []
+        for label in labels:
+            class_id, x_center, y_center, box_width, box_height = map(float, label.strip().split())
+            # Переходим к формату (x_min, y_min, x_max, y_max)
+            x_min = (x_center - box_width / 2) * width
+            y_min = (y_center - box_height / 2) * height
+            x_max = (x_center + box_width / 2) * width
+            y_max = (y_center + box_height / 2) * height
+
+            # Убедимся, что координаты находятся в пределах изображения
+            x_min = max(min(x_min, width - 1), 0)
+            y_min = max(min(y_min, height - 1), 0)
+            x_max = max(min(x_max, width - 1), 0)
+            y_max = max(min(y_max, height - 1), 0)
+
+            annotations.append([x_min, y_min, x_max, y_max, int(class_id)])
+
+        # Добавляем обрезку динамически, если размеры изображения позволяют
+        transform = transform_base
+
+        if width >= 640 and height >= 640:
+            transform = A.Compose([
+                A.RandomCrop(width=640, height=640, p=0.5),  # Случайное кадрирование
+                *transform_base.transforms
+            ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels'], min_visibility=0.2))
+
+        # Применяем преобразования к изображению и аннотациям
+        transformed = transform(image=image, bboxes=annotations, class_labels=[ann[4] for ann in annotations])
+        transformed_image = transformed['image']
+        transformed_bboxes = transformed['bboxes']
+
+        # Преобразуем тензор обратно в numpy.ndarray
+        if isinstance(transformed_image, torch.Tensor):
+            transformed_image = transformed_image.permute(1, 2, 0).cpu().numpy()
+            # Переводим значения пикселей из [0, 1] в [0, 255] для сохранения в формате изображения
+            transformed_image = (transformed_image * 255).astype(np.uint8)
+
+        # Преобразуем метки обратно в формат YOLO
+        new_labels = []
+        for bbox in transformed_bboxes:
+            x_min, y_min, x_max, y_max, class_id = bbox
+
+            # Пересчитываем в центр и нормализуем
+            x_center = ((x_min + x_max) / 2) / width
+            y_center = ((y_min + y_max) / 2) / height
+            box_width = (x_max - x_min) / width
+            box_height = (y_max - y_min) / height
+
+            # Убедимся, что все координаты находятся в пределах [0, 1]
+            x_center = min(max(x_center, 0), 1)
+            y_center = min(max(y_center, 0), 1)
+            box_width = min(max(box_width, 0), 1)
+            box_height = min(max(box_height, 0), 1)
+
+            # Если размеры бокса или его центр выходят за границы, пропустим эту аннотацию
+            if x_center <= 0 or x_center >= 1 or y_center <= 0 or y_center >= 1 or box_width <= 0 or box_height <= 0:
+                continue
+
+            new_labels.append(f"{class_id} {x_center} {y_center} {box_width} {box_height}\n")
+
+        # Сохраняем преобразованное изображение и обновленную разметку
+        filename = os.path.basename(image_path)
+        output_image_path = os.path.join(output_image_folder, filename)
+        output_labels_path = os.path.join(output_labels_folder, filename.replace('.jpg', '.txt').replace('.png', '.txt'))
+        cv2.imwrite(output_image_path, transformed_image)
+        with open(output_labels_path, 'w') as f:
+            f.writelines(new_labels)
+        print(f"Обработано: {filename}")
+    else:
+        print(f"Ошибка при загрузке: {image_path}")
+
+if __name__ == '__main__':
+    images_folder = 'data_yolo_new_photo/images/train'
+    labels_folder = 'data_yolo_new_photo/labels/train'
+    output_image_folder = 'data_yolo_new_photo/images/trans_train'
+    output_labels_folder = 'data_yolo_new_photo/labels/trans_train'
+
+    os.makedirs(output_image_folder, exist_ok=True)
+    os.makedirs(output_labels_folder, exist_ok=True)
+
+    # Базовый объект преобразования без обрезки
+    transform_base = A.Compose([
+        A.HorizontalFlip(p=0.5),  # Горизонтальное отражение с вероятностью 50%
+        A.RandomBrightnessContrast(p=0.2),  # Случайное изменение яркости и контрастности
+        A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.1, rotate_limit=15, p=0.5),  # Перемещение, масштабирование и поворот
+        ToTensorV2()  # Преобразование изображения в тензор PyTorch
+    ], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels'], min_visibility=0.2))
+
+    for filename in os.listdir(images_folder):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            image_path = os.path.join(images_folder, filename)
+            labels_path = os.path.join(labels_folder, filename.replace('.jpg', '.txt').replace('.png', '.txt'))
+            transform_image_and_labels(image_path, labels_path, output_image_folder, output_labels_folder, transform_base)
